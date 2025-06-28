@@ -111,13 +111,16 @@ class SimpleRouter(Router):  # pylint: disable=too-few-public-methods
     async def email_to_apprise(
         self, logger: Logger, email: EmailMessage, auth_data: typ.Any, **kwargs) \
             -> typ.AsyncGenerator[AppriseNotification, None]:
-        for addr in email.to:
+        
+        sender_addr = email.from_
+        for addr in [email.to]:
             try:
+                sender_mail = _parsercpt(sender_addr)
                 rcpt = _parsercpt(addr)
             except ValueError:
                 logger.error('Not a valid Mailrise address: %s', addr)
                 continue
-            sender = self.get_sender(rcpt.key)
+            sender = self.get_sender(sender_mail.key, rcpt.key)
             if sender is None:
                 logger.error('Recipient is not configured: %s', addr)
                 continue
@@ -141,12 +144,14 @@ class SimpleRouter(Router):  # pylint: disable=too-few-public-methods
                 attachments=email.attachments
             )
 
-    def get_sender(self, key: _Key) -> _SimpleSender | None:
+    def get_sender(self, sender_key: _Key, rect_key: _Key) -> _SimpleSender | None:
         """Find a sender by recipient key."""
         return next(
-            (sender for (pattern_key, sender) in self.senders
-             if fnmatchcase(key.user, pattern_key.user)
-             and fnmatchcase(key.domain, pattern_key.domain)), None)
+            (sender for (sender_pattern_key, rect_pattern_key, sender) in self.senders
+             if fnmatchcase(sender_key.user, sender_pattern_key.user)
+             and fnmatchcase(sender_key.domain, sender_pattern_key.domain)
+             and fnmatchcase(rect_key.user, rect_pattern_key.user)
+             and fnmatchcase(rect_key.domain, rect_pattern_key.domain)), None)
 
 
 def load_from_yaml(logger: Logger, configs_node: dict[str, typ.Any]) -> SimpleRouter:
@@ -155,8 +160,8 @@ def load_from_yaml(logger: Logger, configs_node: dict[str, typ.Any]) -> SimpleRo
         logger.critical('The configs node is not a YAML mapping')
         raise SystemExit(1)
     router = SimpleRouter(
-        senders=[(_parse_simple_key(logger, key), _load_simple_sender(logger, key, config))
-                 for key, config in configs_node.items()]
+        senders=[(_parse_simple_key(logger, key), _parse_simple_key(logger, rev), _load_simple_sender(logger, key, config))
+                 for key, rev_config in configs_node.items() for rev, config in rev_config.items()]
     )
     if len(router.senders) < 1:
         logger.critical('No Apprise targets are configured')
