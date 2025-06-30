@@ -25,4 +25,4 @@ jobs:
         name: Build and Push
         uses: ./.github/actions/docker-build
         with:
-          images: yoryan/mailrise
+          images: hucknz/mailrise
